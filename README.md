@@ -27,15 +27,30 @@ Labels are Article-6-specific (derived from `violation_articles`/`nonviolation_a
 *   Spurious keyword investigation: `represented` rate by class and country.
 *   Shared lexical pipeline: lemmatization (`WordNetLemmatizer`, noun POS), legal stopwords (`court`, `case`, `mr`, `mrs`, `ms`), `MANUAL_LEMMA_MAP` for irregular legal plurals.
 
-**B. Modeling:**
-1.  **Baseline Model** (`train_svm.ipynb`) — TF-IDF + Linear SVM replicating Aletras et al. (2016). Uses the same `legal_tokenizer` as EDA for consistency. Results: ~74% random split, ~68% temporal split.
-2.  **Advanced Model** (`src/train.py`) — Fine-tune **Legal-BERT** (`nlpaueb/legal-bert-base-uncased`).
+**B. Modeling** (`train_svm.ipynb`) — self-contained, no external `.py` dependencies:
+
+| Model | Role |
+|---|---|
+| Dummy (majority-class) | Explicit floor — any model near this on macro-F1 learns nothing |
+| Complement Naive Bayes | Comparison; no class weighting, exposes base-rate exploitation |
+| Linear SVM | Aletras et al. (2016) baseline |
+| Logistic Regression | Often stronger on small data; needed for LIME explainability |
+
+Hyperparameters (`C`, `class_weight`) selected by 5-fold CV grid search optimising macro-F1.
+`class_weight='balanced'` addresses the 73%/27% class imbalance in the Article 6 subset.
+`has_representation` was **not** used as a feature — EDA found it is not a strong correlate in FACTS-only text.
+
+Two scopes run in the same notebook:
+- **Article 6 only** (436 cases, 73% violations) — primary analysis
+- **All articles** (952 cases, 58% violations) — addon; tests whether corpus size and class balance are limiting factors
+
+**Advanced Model** (`src/train.py`) — Fine-tune **Legal-BERT** (`nlpaueb/legal-bert-base-uncased`).
 
 **C. Evaluation & Critique:**
-*   **Two split strategies:** random stratified 75/25 (standard) and temporal split (train on older cases, test on future cases). The ~6pp drop on temporal split is the primary evidence of temporal spurious correlation.
-*   **Per-country accuracy:** accuracy closely tracking violation rate per country indicates the model exploits class base rates rather than case facts.
+*   **Two split strategies per scope:** random stratified 75/25 and temporal split. The random → temporal macro-F1 drop is the primary evidence of temporal spurious correlation.
+*   **Dummy baseline:** accuracy ≈ violation rate per country (especially for NB) confirms models exploit base rates, not legal content.
 *   **Top SVM features:** presence of country names or procedural boilerplate in the highest-weight features is direct evidence of spurious correlation.
-*   **Explainability (planned):** Integrated Gradients or LIME to verify whether highlighted regions align with legally substantive text.
+*   **Explainability (planned):** LIME or Integrated Gradients to verify whether highlighted regions align with legally substantive text.
 
 ### **6. References**
 *   **Aletras et al. (2016).** Predicting judicial decisions of the European Court of Human Rights: a Natural Language Processing perspective. *PeerJ Computer Science*.

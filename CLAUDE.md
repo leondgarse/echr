@@ -57,11 +57,12 @@ HUDOC API → download_data.py → data/raw/{metadata.csv, full_text.json}
 
 ## Research Context
 
-- **FACTS-only** — all models use only the FACTS section. This is deliberate: using Procedure or LAW sections inflates accuracy via spurious correlations (procedural boilerplate, outcome-revealing language).
-- **Article 6 scope** — Phase 2 analysis is scoped to Article 6 cases only for a focused comparison.
-- **Article-6-specific label** — for Article 6 cases, the label is derived from `violation_articles`/`nonviolation_articles` columns, not the original `label` column (which reflects the overall case outcome).
-- **Bias axes under investigation:** respondent country, judgment year (temporal shift), text length, presence of "represented" keyword
-- **Explainability methods planned:** LIME, Integrated Gradients
+- **FACTS-only** — all models use only the FACTS section. Using Procedure or LAW sections inflates accuracy via spurious correlations (procedural boilerplate, outcome-revealing language).
+- **Article 6 scope** — Phase 2 primary analysis is Article 6 only; all-articles (952 cases) is an addon comparison.
+- **Article-6-specific label** — derived from `violation_articles`/`nonviolation_articles` columns, not the original `label` column (overall case outcome).
+- **`has_representation` excluded as a feature** — EDA found it is not a strong correlate of outcome in FACTS-only text.
+- **Bias axes:** respondent country, judgment year (temporal shift), text length.
+- **Explainability methods planned:** LIME, Integrated Gradients.
 
 The FACTS section extraction is the central methodological safeguard — ECHR judgments are written after the decision, so using full text risks leakage from outcome-revealing language in the LAW section.
 
