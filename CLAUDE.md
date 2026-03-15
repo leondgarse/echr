@@ -78,18 +78,21 @@ Self-contained notebook (no external `.py` dependencies). Implements TF-IDF + Li
 **TF-IDF parameters:** `min_df=3`, `max_df=0.90`, `sublinear_tf=True`, `ngram_range=(1,2)`
 - `min_df=3` (not 50 as in the reference repo — corpus is ~430 Art.6 cases, too small for `min_df=50`)
 
-**Models:** Linear SVM (Aletras et al. baseline) and Complement Naive Bayes (comparison).
+**Models:** Dummy (majority-class baseline), Complement Naive Bayes, Linear SVM, Logistic Regression.
 
-**Hyperparameter search:** `GridSearchCV` over `C ∈ [0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0]` using 5-fold stratified CV, optimising macro-F1. Best C found to be 0.5.
+**Hyperparameter search:** `GridSearchCV` over `C ∈ [0.01…10]` × `class_weight ∈ [None, 'balanced']`, 5-fold CV, macro-F1. `class_weight='balanced'` directly addresses the 73%/27% class imbalance in Art.6.
 
-**Results (SVM C=0.5):** ~76% random split, ~68% temporal split (Article 6, FACTS-only).
-Consistent with Aletras et al. (2016) ~79% on FACTS-only. The ~8pp temporal drop is the key finding.
+**`has_representation` excluded** — EDA found it is not a strong correlate of outcome in FACTS-only text.
 
-**Two evaluation settings:**
+**Two scopes:**
+1. **Article 6 only** (436 cases, 73% violations) — primary analysis
+2. **All articles** (952 cases, 58% violations) — addon comparison; tests whether corpus size and class balance are limiting factors
+
+**Two evaluation settings per scope:**
 1. Random stratified 75/25 split — standard baseline
 2. Temporal split — train on cases before the 75th-percentile year, test on newer cases
 
-**Outputs:** grid search curve, classification report (Precision/Recall/F1), confusion matrices, model comparison table, per-country accuracy bar chart, top discriminating TF-IDF features.
+**Key finding:** Accuracy ≈ violation rate per country (especially for NB) confirms models exploit base rates. Dummy baseline row makes this quantitatively explicit. Random → Temporal macro-F1 drop is the primary spurious-correlation evidence.
 
 ## Project Status
 
