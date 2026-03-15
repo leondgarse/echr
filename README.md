@@ -17,19 +17,25 @@ We will utilize the **ECHR-OD (Open Data)** or **LexGLUE** datasets, which provi
 *   **Data Provenance Issue:** We acknowledge a critical limitation identified in the literature: our input data (the "Facts" section of judgments) is generated *after* the decision is made, potentially leaking the outcome. We will address this by strictly removing "Law" and "Operative Provisions" sections during preprocessing.
 
 ### **4. Methodology**
-We will frame this as a **binary classification task** (Violation vs. No Violation).
+Framed as a **binary classification task** (Violation vs. No Violation), scoped to **Article 6** cases.
+All models use **FACTS section only** — stripping LAW and Operative Provisions prevents outcome leakage.
+Labels are Article-6-specific (derived from `violation_articles`/`nonviolation_articles` columns).
 
-**A. Exploratory Data Analysis (EDA):**
-*   Analyze the distribution of case outcomes to check for class imbalance.
-*   Examine the correlation between specific Articles (e.g., Article 3, 6, 8) and text length or respondent state.
+**A. Exploratory Data Analysis (EDA)** — `EDA.ipynb` / `EDA.pdf`
+*   TF-IDF and Fighting Words (Monroe et al. 2008) analysis of violation vs. non-violation vocabulary.
+*   Scattertext corpus comparison and concordance analysis.
+*   Spurious keyword investigation: `represented` rate by class and country.
+*   Shared lexical pipeline: lemmatization (`WordNetLemmatizer`, noun POS), legal stopwords (`court`, `case`, `mr`, `mrs`, `ms`), `MANUAL_LEMMA_MAP` for irregular legal plurals.
 
 **B. Modeling:**
-1.  **Baseline Model:** Replicate the approach of Aletras et al. (2016) using TF-IDF features and a Linear Support Vector Machine (SVM).
-2.  **Advanced Model:** Fine-tune a pre-trained **Legal-BERT** model, which has shown superior performance in identifying legal concepts compared to generic models.
+1.  **Baseline Model** (`train_svm.ipynb`) — TF-IDF + Linear SVM replicating Aletras et al. (2016). Uses the same `legal_tokenizer` as EDA for consistency. Results: ~74% random split, ~68% temporal split.
+2.  **Advanced Model** (`src/train.py`) — Fine-tune **Legal-BERT** (`nlpaueb/legal-bert-base-uncased`).
 
 **C. Evaluation & Critique:**
-*   **Spurious Correlation Check:** We will test if the model over-relies on "distractor" tokens. For example, previous studies found the word "represented" strongly correlated with specific outcomes due to inadmissible cases often listing legal representation differently. We will attempt to replicate this finding or identify new spurious tokens.
-*   **Explainability:** We will use techniques like **Integrated Gradients** or **LIME** to visualize which parts of the text drive the prediction. We will analyze if these highlighted regions align with what legal experts would consider relevant facts, or if they point to irrelevant metadata.
+*   **Two split strategies:** random stratified 75/25 (standard) and temporal split (train on older cases, test on future cases). The ~6pp drop on temporal split is the primary evidence of temporal spurious correlation.
+*   **Per-country accuracy:** accuracy closely tracking violation rate per country indicates the model exploits class base rates rather than case facts.
+*   **Top SVM features:** presence of country names or procedural boilerplate in the highest-weight features is direct evidence of spurious correlation.
+*   **Explainability (planned):** Integrated Gradients or LIME to verify whether highlighted regions align with legally substantive text.
 
 ### **6. References**
 *   **Aletras et al. (2016).** Predicting judicial decisions of the European Court of Human Rights: a Natural Language Processing perspective. *PeerJ Computer Science*.
@@ -41,35 +47,31 @@ We will frame this as a **binary classification task** (Violation vs. No Violati
 ### **6. Execution Steps**
 
 #### **1. Environment Setup**
-Ensure you have the necessary dependencies installed, including `torch`, `transformers`, `echr-extractor`, `pandas`, and `scikit-learn`.
-
 ```bash
-pip install echr-extractor
+pip install echr-extractor torch transformers pandas scikit-learn nltk scattertext shifterator
 ```
 
 #### **2. Data Acquisition**
-Download cases from the HUDOC database using the `echr-extractor` wrapper script.
 ```bash
-# Download 100 cases (default)
-python scripts/download_data.py --count 100
+python scripts/download_data.py --countries RUS,TUR,GBR --per_country_count 200 --articles 3,5,6,8
 ```
-This will save metadata to `data/raw/metadata.csv` and full text to `data/raw/full_text.json`.
+Saves to `data/raw/metadata.csv` and `data/raw/full_text.json`.
 
 #### **3. Data Preprocessing**
-Parse the downloaded raw data, extract the "FACTS" section, label the cases, and split into train/val/test sets.
 ```bash
-python scripts/preprocess_data.py
+python scripts/preprocess_data.py --data_dir data/raw
 ```
-processed files will be saved in `data/processed/`.
+Extracts FACTS sections only; saves to `data/processed/processed.csv` (~952 cases).
 
-#### **4. Model Training**
-Train the Legal-BERT classifier on the processed data.
+#### **4. Phase 1 — EDA**
+Open and run `EDA.ipynb`. Exported output: `EDA.pdf`.
+
+#### **5. Phase 2 — Traditional ML (SVM)**
+Open and run `train_svm.ipynb`. Self-contained; no external `.py` dependencies.
+
+#### **6. Phase 2 — Legal-BERT**
 ```bash
-# Run training (example with small batch size for verification)
 python src/train.py --epochs 3 --batch_size 8 --output_dir results
-```
-To run on CPU (if no GPU available or OOM issues):
-```bash
-export CUDA_VISIBLE_DEVICES=""
-python src/train.py --epochs 1 --batch_size 2
+# CPU only:
+CUDA_VISIBLE_DEVICES="" python src/train.py --epochs 1 --batch_size 2
 ```
