@@ -98,7 +98,7 @@ def download_data(args):
     print(f"Countries: {countries}")
     print(f"Articles: {articles}")
 
-    output_dir = "data/raw"
+    output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
     all_dfs = []
@@ -151,6 +151,8 @@ if __name__ == "__main__":
     parser.add_argument("--articles", type=str, default="3,5,6,8",
                         help="Comma-separated list of ECHR articles to filter (default: 3,5,6,8)")
     # Legacy argument for backward compatibility
+    parser.add_argument("--output_dir", type=str, default="data/raw",
+                        help="Directory to save metadata.csv and full_text.json")
     parser.add_argument("--count", type=int, default=None,
                         help="(Legacy) Total cases per class. Overrides --per_country_count if set.")
     args = parser.parse_args()
