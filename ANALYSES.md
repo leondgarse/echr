@@ -41,7 +41,7 @@ The model essentially learns: "if this reads like a Polish case from the 1990s, 
 
 ## 1a. SVM Feature Analysis — Full Results
 
-Script: `scripts/svm_features.py` | Log: `40_svm_features.log` | Dataset: v2 (1,500 Art.6 cases)
+Script: `scripts/svm_features.py` | Log: `40_svm_features.log` | Dataset: v1 (1,205 Art.6 cases)
 
 ### Important: two tokenisers — two different pictures
 
@@ -200,14 +200,6 @@ In other words: **SVM generalises despite using spurious features; neural models
 
 Zero features are stable across all five year quintiles in the temporal stability analysis, yet SVM still generalises. This rules out the hypothesis that SVM succeeds by learning stable legal vocabulary — it succeeds by not overfitting unstable vocabulary.
 
-### Temporal gap widens with more diverse data (v2, 1,500 cases)
-
-| Model | Random (v2) | Temporal (v2) | Gap |
-|-------|-------------|---------------|-----|
-| TF-IDF + SVM | 0.710 | **0.720** | +0.010 |
-| DeBERTa-v3 | 0.676 | 0.595 | −0.081 |
-
-Adding 9 new Western European countries (v2) increases cross-country diversity and reduces the violation rate from 81.9% to 75.2%. SVM's temporal robustness is preserved. DeBERTa's temporal performance collapses further (−0.081 vs −0.043 on v1), with extreme seed variance (0.494–0.684). **The SVM–DeBERTa temporal gap grows from 0.070 to 0.125**, the strongest quantitative evidence for neural over-reliance on spurious correlations.
 
 ### Temporal robustness of long-context models (runs 65, 68)
 
@@ -360,7 +352,7 @@ F1 on the minority class (no-violation) is consistently the weakest metric:
 | Adv LegalBERT | v1 random | 0.557 | 0.866 |
 | LegalBERT | v1 temporal | 0.417 | 0.875 |
 
-The high violation rate (75–82%) across all dataset versions makes non-violation recall structurally difficult. Dataset v2 improves the violation rate to 75.2% (from 81.9%), which slightly improves F1(no-viol) for SVM (0.570→0.624 temporal). However, the ITA anomaly (0 violations in processed data due to FACTS extraction failure) introduces a country-specific all-NV bias that could inflate non-violation recall for Western European country subsets.
+The high violation rate (75–82%) across all dataset versions makes non-violation recall structurally difficult.
 
 ---
 
@@ -399,7 +391,7 @@ The SVM feature analysis and the violation/non-violation asymmetry provide concr
 
 ### 8.1 What attention models are likely doing wrong
 
-The temporal drop (DeBERTa: −0.043 on v1, −0.081 on v2) combined with the feature analysis suggests neural models are attending to:
+The temporal drop (DeBERTa: −0.043 on v1) combined with the feature analysis suggests neural models are attending to:
 
 1. **Contextual clusters around institutional names** — `state security`, `army`, `cassation`, `treasury` are embedded in dense contextual neighbourhoods that encode country identity. An attention model learns that the co-occurrence pattern around `state security` predicts violation, but this pattern changes post-2004 (Turkish State Security Courts abolished).
 2. **Temporal vocabulary distributions** — not just year tokens themselves (which are filtered) but the vocabulary *associated* with different eras: case law language, institutional names, procedural terminology that evolved over time.
@@ -448,35 +440,10 @@ Create pairs of (violation, non-violation) cases with similar factual content bu
 
 | Finding | Implication |
 |---------|-------------|
-| DeBERTa temporal gap widens more than LegalBERT on v2 | DeBERTa's disentangled attention encodes positional+content relations more richly, which amplifies temporal distribution shift — stronger model = more sensitive to spurious distributional patterns |
 | Adversarial debiasing hurts DeBERTa but helps LegalBERT | Do not apply gradient-reversal to models with strong positional inductive biases; use token-level interventions (CDA, masking) instead |
 | Longformer underperforms DeBERTa despite 4× context | Legal reasoning tokens are short and dense; long context adds noise from procedural boilerplate more than it adds signal. Smarter truncation > longer window |
 | Non-violation reasoning language is short and evaluative | CLS token or first-sentence pooling may actually capture more reasoning signal than mean-pooling over the full FACTS section, which averages in event-driven boilerplate |
 
-### 8.6 Experimental results: did the interventions beat SVM?
-
-All experiments run on Enlarged v2 (1,500 Art.6 cases), random split. Baseline DeBERTa on v2: **0.676–0.683** (high seed variance). SVM on v2: **0.710**.
-
-| Intervention | Macro-F1 | vs v2 baseline | vs v2 SVM |
-|---|---|---|---|
-| Baseline DeBERTa (v2, re-run) | 0.683 | — | −0.027 |
-| + CDA masking (`--mask_shortcuts`) | **0.698** | **+0.015** | −0.012 |
-| + reasoning-aware truncation | 0.693 | +0.010 | −0.017 |
-| + CDA + reasoning combined | 0.688 | +0.005 | −0.022 |
-| DeBERTa + SVM soft ensemble (best w=0.75) | 0.698 | +0.015 | −0.012 |
-
-**CDA masking is the most effective single intervention (+0.015)**, partially closing the DeBERTa–SVM gap from 0.034 to 0.012. SVM is not beaten on v2.
-
-**Why reasoning-aware truncation underperforms:**
-The reasoning-span selector scores chunks by density of evaluative tokens (`whether`, `particular`, `legislative`, `provision`). Since non-violation judgments contain more evaluative language (§7), the selector systematically picks non-violation-biased chunks. Combined with head+tail already capturing event-driven violation signals, the reasoning chunk adds a class-imbalanced bias rather than complementary content.
-
-**Why CDA + reasoning is worse than CDA alone:**
-The two interventions conflict. CDA removes institutional shortcuts that overlap with violation signals; reasoning-span selection then over-represents non-violation evaluative language. Together they push the model's calibration toward non-violation predictions, reducing F1(violation) enough to hurt the macro average.
-
-**Why the soft ensemble doesn't exceed CDA:**
-The re-run DeBERTa (0.683) is weaker than the best DeBERTa instance (0.719 on v1). Calibrated SVM on v2 gives 0.647 — lower than uncalibrated SVM (0.710) because CalibratedClassifierCV with 5-fold CV reduces effective training data. The ensemble of two sub-optimal models peaks at 0.698, matching CDA alone.
-
-**Bottom line:** On v2 (1,500 cases), no single intervention beats the SVM. The best DeBERTa configuration (CDA masking) narrows the gap to 0.012 (0.698 vs 0.710). On v1 (1,205 cases), the non-CDA DeBERTa was already 0.719 vs SVM 0.725 (gap 0.006); CDA would likely close or exceed that gap on v1, but the v1 processed.csv was overwritten by the dataset expansion.
 
 ### 8.5 Summary: recommended training pipeline for a debiased model
 
@@ -492,9 +459,8 @@ The re-run DeBERTa (0.683) is weaker than the best DeBERTa instance (0.719 on v1
 
 3. **Year masking probe**: Similarly, masking all 4-digit year tokens would isolate the temporal shortcut contribution.
 
-4. **Adversarial DeBERTa on v2 temporal**: The v2 dataset has a much larger temporal gap (0.125 for DeBERTa vs 0.070 on v1). Does adversarial training recover more of this gap on the harder v2 split?
 
-5. **Article-level generalisation (deferred)**: Do the same spurious correlation patterns appear for Articles 3, 5, and 8, or is Article 6 anomalous due to its procedural nature?
+4. **Article-level generalisation (deferred)**: Do the same spurious correlation patterns appear for Articles 3, 5, and 8, or is Article 6 anomalous due to its procedural nature?
 
 ---
 
@@ -563,48 +529,3 @@ With CDA masking (run 74, 8 seeds): also 0.748 — CDA adds nothing on the 3-cou
 **The original dataset result is now: LegalBERT chunked 0.748 > SVM 0.726 > LogReg 0.735? No — LogReg 0.735 < 0.748.** Full ordering on original random split: LegalBERT chunked (0.748) > LogReg (0.735) > SVM (0.726).
 
 ---
-
-## 10. Dataset Scaling: v3 and Multi-Task (Planned)
-
-### 10.1 Motivation
-
-The v3 download (11 new countries, Art.3/5/6/8) targets ~2,700 Art.6 training cases — roughly 3× current scale. This tests the hypothesis that the SVM gap closes at higher data regimes.
-
-Historical precedent (Chalkidis et al. 2019) shows neural models outperform SVM on ECHR when trained on thousands of cases with hierarchical architectures. The 0.031 DeBERTa–SVM gap at 900 training cases may close at 1,800+.
-
-### 10.2 Multi-task learning (Option B)
-
-The multi-task setup trains one DeBERTa encoder with four article-specific classification heads (Art.3, 5, 6, 8). Each case contributes loss to whichever heads it is labelled for. Expected benefits:
-
-1. **More effective training signal**: the encoder learns from all ~3,500 cross-article cases, not only the ~2,700 Art.6 subset
-2. **Regularisation**: auxiliary article tasks prevent overfitting to Art.6-specific shortcuts
-3. **Cross-article transfer**: violation language is partially shared (procedural delays affect Art.5 and Art.6; evidence admissibility affects Art.3 and Art.6)
-
-If multi-task succeeds, it suggests that narrow single-article fine-tuning is a bottleneck — the model benefits from the broader legal-language signal encoded across articles.
-
-### 10.3 v3 Results and the Class-Balance Lesson
-
-v3 training is complete. Results are worse than expected:
-
-| Model | v1 (1,205) | v2 (1,500) | v3 (3,212) |
-|-------|-----------|-----------|-----------|
-| SVM | 0.745 | 0.710 | **0.688** |
-| DeBERTa baseline | 0.670 | 0.676 | **0.669** |
-| DeBERTa + CDA | 0.697 | 0.698 | **0.661** |
-
-More data made performance *worse* for all models. The cause: new countries (SVK, SVN, SRB, MDA) are 95–99% violations, raising the overall violation rate from 81.9% (v1) to 84.7% (v3). The test set has 803 cases with only 122 NV (15.2%).
-
-**The lesson:** dataset scaling only helps when it preserves or improves label balance. Expanding to high-violation countries without corresponding NV cases worsens the problem. Effective expansion strategies:
-1. **Target NV-rich countries** — DEU (41% V), NLD (61% V), FRA (60% V), AUT (51% V) all have high NV proportions and more cases available than we've downloaded
-2. **Increase per_label_count for NV only** — cap violations at current level, fetch more NV cases from existing countries
-3. **Accept natural imbalance but train with stronger class weighting** — focal loss (γ=2) or asymmetric loss
-
-The DeBERTa–SVM gap does narrow on v3 (0.019 vs 0.031 on v1), but only because SVM degrades more on harder distributions. This is not a useful form of gap closure.
-
-### 10.4 Revised analysis: data quantity vs data quality
-
-The data-scaling hypothesis (more data → neural models beat SVM) appears to require *balanced* data, not just more data. The inflection point for neural superiority over SVM likely requires both:
-- ~2,000+ balanced training cases per class (currently: ~350 NV vs ~2,060 V in v3 train)
-- Or explicit rebalancing via NV-focused downloading
-
-Multi-task learning (Option B) remains untested and may provide a cleaner path than raw data expansion, since the auxiliary Art.3/5/8 tasks add diverse legal patterns without worsening the Art.6 class imbalance.

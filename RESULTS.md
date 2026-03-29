@@ -14,8 +14,6 @@ Primary metric: **macro-F1** (balances violation/no-violation, matching class-im
 | Original | Article 6 only | 436 | 73.4% | `data/processed/processed.csv` |
 | Original | All articles | 952 | 58% | same file, all-articles label |
 | Enlarged v1 | Article 6 only | 1,205 | 81.9% | `data_v1/processed/processed.csv` (POL/ROU/RUS/GBR/DEU/FRA/BEL/TUR) |
-| Enlarged v2 | Article 6 only | 1,500 | 77.1% | `data_large/processed/processed.csv` (+AUT/CHE/ESP/GRC/ITA/NLD/NOR/SWE/UKR) |
-| Enlarged v3 | All articles | TBD | TBD | **downloading** — 11 new countries (HRV/SVK/CZE/BGR/SRB/MDA/SVN/PRT/FIN/ARM/GEO), Art.3/5/6/8 |
 
 **Split schemes:**
 - *Random*: stratified 75/25 train/test, seed=42
@@ -247,10 +245,6 @@ Log: `31_longformer.log`
 | TF-IDF + LogReg | Original (436) | Random | **0.735** |
 | TF-IDF + SVM | Enlarged v1 (1205) | Random | 0.725 |
 | TF-IDF + SVM | Enlarged v1 (1205) | Temporal | **0.746** |
-| TF-IDF + SVM | Enlarged v2 (1500) | Random | 0.710 |
-| TF-IDF + SVM | Enlarged v2 (1500) | Temporal | 0.720 |
-| DeBERTa-v3 (ensemble) | Enlarged v2 (1500) | Random | 0.676 |
-| DeBERTa-v3 (ensemble) | Enlarged v2 (1500) | Temporal | 0.595 |
 | Adv DeBERTa-v3 λ=0.05 (ensemble) | Enlarged v1 (1205) | Random | 0.693 |
 | Fine-tuned LegalBERT (ensemble) | Original (436) | Random | 0.680 |
 | Fine-tuned LegalBERT (ensemble) | Enlarged (1205) | Random | 0.678 |
@@ -268,11 +262,6 @@ Log: `31_longformer.log`
 | Frozen BERT+LR (mean) | Enlarged (1205) | Random | 0.624 |
 | GLM-4.7-Flash zero-shot | Original (436) | Random | 0.601 |
 | GLM-4.7-Flash 3-shot | Original (436) | Random | 0.583 |
-
-| DeBERTa + CDA masking (ensemble) | Enlarged v2 (1500) | Random | **0.698** |
-| DeBERTa + reasoning truncation (ensemble) | Enlarged v2 (1500) | Random | 0.693 |
-| DeBERTa + CDA + reasoning (ensemble) | Enlarged v2 (1500) | Random | 0.688 |
-| DeBERTa + SVM soft ensemble (best w=0.75) | Enlarged v2 (1500) | Random | 0.698 |
 
 | **LegalBERT chunked 4× + CDA (8 seeds)** | **Original (436)** | **Random** | **0.748** |
 | LegalBERT chunked 4× (4 seeds) | Original (436) | Random | 0.720 |
@@ -292,46 +281,6 @@ Log: `31_longformer.log`
 
 ---
 
-## 8. Enlarged Dataset v2 (1,500 Art.6 cases)
-
-**9 new countries added:** AUT, CHE, ESP, GRC, ITA, NLD, NOR, SWE, UKR
-Download: `scripts/download_data.py --countries ITA,GRC,UKR,AUT,ESP,CHE,SWE,NLD,NOR --per_country_count 30 --articles 6`
-Merge: `scripts/merge_datasets.py` (deduplicates on item_id)
-Log: `36_download_new.log`
-
-| Version | Cases | Art.6 cases | Violation rate | Countries |
-|---------|-------|-------------|----------------|-----------|
-| Original | 952 (all) | 436 | 73.4% | RUS, TUR, GBR |
-| Enlarged v1 | 2,250 (all) | 1,205 | 81.9% | + POL, ROU, DEU, FRA, BEL |
-| Enlarged v2 | 2,545 (all) | 1,500 | 75.2% | + AUT, CHE, ESP, GRC, ITA, NLD, NOR, SWE, UKR |
-
-Note: ITA has 0 violations in processed data (17 NV only) — FACTS extraction failed for Italian violation judgments. ITA cases are all-NV and may introduce country-specific bias.
-
-Temporal threshold: 75th-percentile year = **2014** (unchanged). Train: 1,095 cases (year < 2014), Test: 405 cases (year ≥ 2014).
-
-### SVM baseline on v2 — `37_svm_1500.log`
-
-| Model | Split | Macro-F1 | Acc | F1(no-viol) | F1(viol) |
-|-------|-------|----------|-----|-------------|----------|
-| Dummy | Random | 0.435 | 0.771 | 0.000 | 0.870 |
-| TF-IDF + LinearSVC | Random | **0.710** | 0.779 | 0.570 | 0.851 |
-| TF-IDF + LogReg | Random | 0.698 | 0.752 | 0.571 | 0.826 |
-| Dummy | Temporal | 0.422 | 0.731 | 0.000 | 0.845 |
-| TF-IDF + LinearSVC | Temporal | **0.720** | 0.753 | 0.624 | 0.816 |
-| TF-IDF + LogReg | Temporal | 0.688 | 0.711 | 0.603 | 0.773 |
-
-SVM v1→v2: random 0.725→0.710, temporal 0.746→0.720. Small drop attributable to new countries introducing harder/more diverse cases. **No temporal drop still holds** (temporal slightly outperforms random, +0.010).
-
-### DeBERTa on v2 — `38_deberta_1500.log` (random), `39_deberta_1500_temporal.log` (temporal)
-
-| Log | Split | Macro-F1 | Acc | F1(no-viol) | F1(viol) | Per-seed |
-|-----|-------|----------|-----|-------------|----------|----------|
-| 38_deberta_1500.log | Random | **0.676** | 0.768 | 0.503 | 0.849 | 42→0.644, 0→0.678, 1→0.679, 2→0.726 |
-| 39_deberta_1500_temporal.log | Temporal | **0.595** | 0.654 | 0.440 | 0.750 | 42→0.568, 0→0.562, 1→0.684, 2→0.494 |
-
-v2 DeBERTa random: 0.719→0.676 (−0.043). Temporal: 0.676→0.595 (−0.081). The more diverse v2 countries introduce harder cross-country variation and do not provide consistent training signal for DeBERTa. Seed variance on temporal is extreme (0.494–0.684), indicating the v2 temporal split is highly unstable for neural models. **SVM vs DeBERTa temporal gap widens on v2: SVM 0.720 vs DeBERTa 0.595 (gap: 0.125, vs 0.070 on v1).**
-
----
 
 ## 10. Adversarial DeBERTa λ=0.05 (softer penalty)
 
@@ -507,8 +456,6 @@ All on v1 dataset (1,205 cases, 81.9% V, test n=302). Focal γ=2, seeds=[0,1,2,3
 | 73 | LegalBERT chunked 4× + attn pool, v1 | 2040 tok | 0.712 (t=0.50) | **0.720** (t=0.45) | 0→0.711, 1→0.726, 2→0.684, 3→0.682; −0.040 vs mean pool |
 | **74** | **LegalBERT chunked 4× + CDA, orig (8 seeds)** | 2040 tok | 0.732 (t=0.50) | **0.748** (t=0.55) | 0→0.688, 1→0.727, 2→0.671, 3→0.674, 4→0.614, 5→0.748, 6→0.765, 7→0.632; **beats SVM 0.726 and LogReg 0.735 on original** |
 | 75 | Legal-Longformer (`lexlms/legal-longformer-base`), v1 | 4096 tok | **0.689** (t=0.50) | 0.673 (t=0.45 worse) | 0→0.675, 1→0.699, 2→0.696, 3→0.700; far below chunked LegalBERT |
-| 76 | LegalBERT chunked 4×, v2 (1500 cases) | 2040 tok | **0.738** (t=0.50) | 0.738 | 0→0.713, 1→0.714, 2→0.721, 3→0.716; low variance; harder test set |
-| 77 | LegalBERT chunked 4× + CDA, v2 | 2040 tok | **0.733** (t=0.50) | 0.733 | 0→0.710, 1→0.734, 2→0.738, 3→0.724; CDA neutral on 17-country v2 |
 | **80** | **LegalBERT chunked 4×, orig (fresh 4-seed)** | 2040 tok | **0.748** (t=0.50) | 0.748 | 0→0.709, 1→0.745, 2→0.754, 3→0.554; **confirmed > SVM 0.726** |
 | **81** | **LegalBERT chunked 4×, v1 (fresh 4-seed)** | 2040 tok | 0.742 (t=0.50) | **0.752** (t=0.45) | 0→0.698, 1→0.646, 2→0.693, 3→0.711; confirmed |
 | 82 | Legal-Longformer temporal, v1 | 4096 tok | **0.678** (t=0.50) | 0.678 | 0→0.662, 1→0.667, 2→0.695, 3→0.673 |
@@ -548,7 +495,6 @@ LegalBERT's larger random-split advantage (0.760 vs 0.726) comes at the cost of 
 
 **Legal-Longformer (run 75):** `lexlms/legal-longformer-base` with native 4096-token attention achieves macro-F1=0.689 (t=0.50) — well below LegalBERT chunked 0.760 (−0.071). Despite combining legal pretraining AND 4096-token context, full self-attention over the entire document is noisier than 4-chunk mean-pooled CLS tokens. The chunked architecture isolates each 510-token segment before pooling, forcing the model to extract dense local summaries; Longformer attends globally but spreads attention signal across many low-information tokens. Additionally, Legal-Longformer's legal pretraining corpus may be smaller/different than LegalBERT's. Threshold tuning backfires (t=0.45 from val gives 0.673 < 0.689 at t=0.50) — val calibration is unreliable for this model. **Legal-Longformer is not competitive; chunked mean-pooling remains the superior architecture.**
 
-**LegalBERT chunked on v2 (run 76, 77):** v2 (1500 cases, 77.1% V) gives 0.738 without CDA and 0.733 with CDA — both below v1's 0.760. Despite 24% more training data and better class balance (77.1% vs 81.9%), the v2 test set is harder (more diverse 17-country distribution, SVM baseline 0.710 vs v1's 0.732). The remarkably low per-seed variance (0.713–0.721) indicates stable but ceiling-constrained performance. CDA neutral again on multi-country v2 (−0.005), consistent with runs 72 and all-articles finding. **v2 does not improve over v1; the harder cross-country distribution negates the data quantity advantage.**
 
 **CDA masking on v1 (run 72):** LegalBERT chunked + CDA achieves 0.756 (t=0.45) vs 0.760 without CDA — effectively neutral (−0.004). On v1 (8 diverse countries: POL, ROU, RUS, GBR, DEU, FRA, BEL, TUR), country tokens carry useful legal-type signal that CDA removes. Unlike the original 3-country dataset where dominant priors (RUS/TUR/GBR) are shortcuts, v1 country diversity means country identity partially encodes genuine legal-system differences. Seed-level variance (0.681–0.763) is comparable to baseline, confirming CDA neither helps nor hurts meaningfully on multi-country datasets.
 
@@ -556,112 +502,13 @@ LegalBERT's larger random-split advantage (0.760 vs 0.726) comes at the cost of 
 
 **LegalBERT chunked + CDA on original dataset (run 74):** 8-seed ensemble achieves macro-F1=0.748 (t=0.55), **beating SVM 0.735 for the first time on the 436-case original dataset** (+0.013). Key factors: (1) CDA removes dominant RUS/TUR/GBR country priors that are strong shortcuts in the 3-country dataset; (2) 8-seed ensemble reduces variance on the small 109-case test set. Per-seed range 0.614–0.765 shows high variance — the ensemble mean stabilises this. F1(NV)=0.646, substantially above typical NV scores for this dataset. Consistent with finding on v1 (run 23): CDA helps strongly when country identity encodes dominant base-rate shortcuts (+0.028 on original vs −0.004 on diverse v1).
 
-**Multi-task ablations (runs 52–53):** Art.3+6 and Art.6+8 multi-task both score ≈ 0.661 ensemble, consistent with the finding from run 50 (four-article MT 0.657) — auxiliary tasks with poor class balance corrupt the shared encoder.
-
-| Run | Articles | Per-seed test macro-F1 | Ensemble |
-|-----|----------|------------------------|----------|
-| 52 | Art.3+6 MT | 0→0.646, 1→0.665, 2→0.684, 3→0.648 | **0.661** |
-| 53 | Art.6+8 MT | 0→0.646, 1→0.667, 2→0.684, 3→0.648 | **0.661** |
 
 ---
 
-## 12. Large-Scale Download (v3) — In Progress
-
-**Goal:** 10× data to overcome the 900-training-case bottleneck.
-
-**Reality:** English Art.6 HUDOC database is finite. Available case counts per new country (queried):
-HRV=315, SVK=301, BGR=352, SRB=201, MDA=313, SVN=308, PRT=201, CZE=168, FIN=121, ARM=93, GEO=90
-
-**Download command:**
-```bash
-python scripts/download_data.py \
-  --countries HRV,SVK,CZE,BGR,SRB,MDA,SVN,PRT,FIN,ARM,GEO \
-  --per_country_count 500 --articles 3,5,6,8 --fetch_multiplier 3 \
-  --output_dir data_large/raw
-```
-
-**Expected yield:**
-- New cases (all 4 articles): ~2,300 metadata records → ~1,600 after full-text extraction (~70% success)
-- Art.6 specific subset: ~1,200 new cases
-- Combined with v2 (1,500): projected **v3 ≈ 2,700 Art.6 cases** (~1.8× current)
-- True 10× not feasible from English Art.6 HUDOC alone; multi-task with Art.3/5/8 adds ~2,000 more cross-article cases
-
-### Results on v3
-
-SVM and DeBERTa on v3 (75/25 split, data_seed=42, test n=803, violation rate 84.7%):
-
-| Model | Macro-F1 | Acc | F1(no-viol) | F1(viol) | vs v1 |
-|-------|----------|-----|-------------|----------|-------|
-| TF-IDF + LinearSVC | **0.688** | 0.803 | 0.500 | 0.877 | −0.057 |
-| DeBERTa-base (49) | 0.669 | 0.803 | 0.459 | 0.880 | −0.001 |
-| DeBERTa-base + CDA (48) | 0.661 | 0.802 | 0.442 | 0.880 | −0.036 |
-
-**Finding: more data from violation-heavy countries hurts all models.** v3 has 84.7% violation (worse than v1 81.9%). New countries contribute almost no NV cases (SVK 6 NV, SVN 14, SRB 9, MDA 3). Class imbalance worsens → SVM drops 0.745→0.688, CDA drops 0.697→0.661. The DeBERTa–SVM gap narrows from 0.031→0.019, but only because SVM degrades more on the harder distribution. CDA is less effective when country signal is already diluted across 30+ countries.
-
-**Option B** (multi-task, all articles): see Section 13.
-
-### Train/test only (no validation set) — `51_deberta_v3_noval.log`
-
-Hypothesis: removing the 15% validation split gives +20% more training data (2,409 vs 2,007 cases), improving generalisation.
-
-`DeBERTa-v3-base, LR=2e-5, batch=4, grad_accum=4, epochs=3, seeds=[0,1,2,3], --val_fraction=0`
-
-| Metric | Value |
-|--------|-------|
-| Macro-F1 (ensemble) | **0.680** |
-| Accuracy | 0.819 |
-| F1(no-viol) | 0.469 |
-| F1(viol) | 0.891 |
-| Per-seed | 0→0.677, 1→0.685, 2→0.680, 3→0.681 |
-
-**Finding:** Removing the validation set and training on 20% more data provides **no improvement** over the v3 DeBERTa baseline (0.669→0.680, within noise). The bottleneck is not training data quantity but class imbalance (84.7% violation) and lexical task structure. With val_fraction=0, early stopping uses a small proxy sample (10% of train_val drawn with fixed seed) — the slight improvement may simply reflect 3 fixed epochs vs patience-based stopping.
-
----
-
----
-
-## 13. Multi-task Learning: All Articles → Art.6 Head
-
-**Goal:** Train shared DeBERTa-v3-base encoder on all 4,257 v3 cases (Art.3/5/6/8), with one binary head per article. Non-Art.6 cases provide free auxiliary supervision. Evaluate only the Art.6 head at test time (same 803-case test split as Section 12).
-
-Script: `scripts/train_multitask.py`
-Data: `data_large/processed/processed.csv` (4,257 cases, 3,212 Art.6 relevant)
-Config: `epochs=5, batch_size=4, grad_accum=4, LR=2e-5, seeds=[0,1,2,3], patience=3`
-Log: `50_multitask.log`
-
-| Metric | Value |
-|--------|-------|
-| Macro-F1 (ensemble, Art.6 head) | **0.657** |
-| Accuracy | 0.808 |
-| F1(no-viol) | 0.429 |
-| F1(viol) | 0.885 |
-| Per-seed Art.6 | 0→0.646, 1→0.665, 2→0.684, 3→0.648 |
-
-**Per-article test macro-F1 (seed=2, best):**
-
-| Article | Macro-F1 |
-|---------|----------|
-| Art.3 | 0.465–0.526 |
-| Art.5 | 0.436 (near majority class) |
-| Art.6 | 0.684 |
-| Art.8 | 0.400–0.446 |
-
-**Finding: Multi-task training hurts Art.6 performance** (0.657 vs single-task 0.669, −0.012). The auxiliary article heads (Art.3/5/8) achieve very low F1 (0.40–0.53), indicating they are near-majority-class predictors rather than learning useful representations. These failing heads corrupt the shared encoder via conflicting gradients — the Art.5/8 auxiliary loss penalises representations that are useful for Art.6. The benefit of auxiliary supervision is negated when auxiliary tasks are harder (worse class balance) than the primary task.
-
-**Comparison on v3 (test n=803–818, 84.7% violation):**
-
-| Model | Macro-F1 | vs single-task baseline |
-|-------|----------|------------------------|
-| TF-IDF + SVM | 0.688 | — |
-| DeBERTa single-task (49) | 0.669 | baseline |
-| DeBERTa no-val (51) | 0.680 | +0.011 |
-| DeBERTa multi-task (50) | 0.657 | −0.012 |
-
----
 
 ## Key Research Findings
 
-1. **SVM dominates on temporal generalisation** — TF-IDF+SVM shows *no temporal drop* (v1: 0.725→0.746; v2: 0.710→0.720, both improve), while all neural models drop. This is the primary evidence that neural models exploit spurious temporal correlations.
+1. **SVM dominates on temporal generalisation** — TF-IDF+SVM shows *no temporal drop* (v1: 0.725→0.746, even improves), while all neural models drop. This is the primary evidence that neural models exploit spurious temporal correlations.
 
 2. **Neural models nearly match SVM on random split** — DeBERTa reaches 0.719 vs SVM 0.725 (v1) on random split, confirming neural models are competitive when temporal shift is not a factor.
 
@@ -677,8 +524,6 @@ Log: `50_multitask.log`
    - SVM: +0.021 (0.725→0.746)
 
 6. **Longer context (Longformer) does not help** — 2048-token Longformer (0.662) < 512-token DeBERTa (0.719). Head_tail truncation already captures the most informative parts; legal pretraining matters more than context length.
-
-7. **Dataset expansion reveals neural fragility** — v2 (1,500 cases) reduces violation rate from 81.9% to 75.2%. SVM drops slightly (random: 0.725→0.710) but temporal robustness is preserved (+0.010). DeBERTa drops sharply on both random (0.719→0.676) and temporal (0.676→0.595), with extreme seed variance on temporal (0.494–0.684). The SVM–DeBERTa temporal gap widens from 0.070 to 0.125, providing the strongest evidence yet for neural over-reliance on spurious correlations.
 
 8. **Softer adversarial penalty (λ=0.05) partially recovers DeBERTa** — λ=0.05 ensemble 0.693 vs λ=0.20 ensemble 0.676 (+0.017), but still below non-adversarial DeBERTa 0.719 (−0.026). No adversarial λ on DeBERTa is net-positive for random split; λ=0.2 is only beneficial for temporal generalisation (+0.003).
 
@@ -696,14 +541,11 @@ Log: `50_multitask.log`
 
 13. **SVM advantage is entirely explained by document coverage, not model quality** — When SVM is restricted to the same 512 tokens DeBERTa sees (head_tail), its macro-F1 drops from 0.732 to 0.678 — virtually the same as DeBERTa's 0.670. The apparent SVM superiority is an artefact of input truncation, not a reflection of the model's learning capacity. Extending coverage to 2048 tokens recovers SVM to 0.728 (near full-text performance). Any model covering ~2048 tokens should match or beat full-text SVM.
 
-12. **Multi-task learning with Art.3/5/8 auxiliary heads hurts Art.6** — Training a shared encoder on all four articles (3/5/6/8) gives Art.6 ensemble 0.657 vs single-task 0.669 (−0.012). Auxiliary article heads achieve near-majority-class predictions (Art.5/8 ≈ 0.436), corrupting the shared encoder with conflicting gradients. Multi-task benefit requires auxiliary tasks to be learnable; severely class-imbalanced auxiliary heads (Art.5/8 are even more violation-heavy than Art.6) act as noise rather than signal.
 
 20. **Legal-Longformer loses to chunked LegalBERT despite better architecture** — `lexlms/legal-longformer-base` (4096 tokens, legal pretraining) = 0.689 vs LegalBERT chunked 4× = 0.760 (−0.071). Full self-attention over 4096 tokens is noisier than 4-chunk mean-pooled CLS. The chunked approach's forced local summarisation per segment is a stronger inductive bias for documents where key legal facts are scattered. Longformer's global attention dilutes the CLS signal across too many low-content tokens. **Chunked mean-pooling of CLS tokens is the superior long-document strategy for ECHR FACTS sections at this data scale.**
 
-21. **v2 dataset (1500 cases, 77.1% V) does not improve over v1 (1205 cases, 81.9% V)** — LegalBERT chunked on v2 = 0.738 vs v1 = 0.760. More data + better class balance is outweighed by a harder, more diverse test set (17 countries vs 8). The SVM baseline drops proportionally (v2: 0.710 vs v1: 0.732), showing the v2 task is objectively harder. Per-seed variance on v2 is extremely low (0.713–0.721), suggesting the model has converged to a stable but limited solution. **Data expansion beyond v1 does not help when new countries introduce qualitatively harder cases.**
 
 18. **CDA effectiveness is context-dependent: helps on 3-country, neutral on 8-country** — CDA masking country/place/month tokens strongly improves original 3-country dataset (LegalBERT chunked: 0.720→0.748, +0.028) but is neutral/slightly negative on v1 8-country dataset (0.760→0.756, −0.004). On the original dataset (RUS 80%, TUR 83%, GBR 64% violation rates), country tokens encode dominant per-country base rates — removing them forces genuine legal reasoning. On v1's 8 diverse countries, country identity partially encodes legal-system differences that are informative signals rather than pure shortcuts.
 
 19. **First neural model to beat SVM on original 436-case dataset** — Run 74 (LegalBERT chunked 4× + CDA + 8 seeds) = 0.748 > SVM 0.726 (and > LogReg 0.735). Previously, all neural models on the original dataset scored below SVM (best was 0.720, run 70). The breakthrough required combining: legal pretraining + full coverage (2040 tok) + CDA debiasing + 8-seed ensemble. The 8-seed ensemble is critical on the small 109-case test set to reduce sampling variance.
 
-11. **Dataset expansion with violation-heavy countries hurts all models** — v3 (3,212 cases, 84.7% V) shows SVM dropping from 0.745→0.688 and DeBERTa from 0.670→0.669. The new countries (SVK/SVN/SRB/MDA, each 95–99% violation) add almost no non-violation cases, worsening class imbalance. The neural–SVM gap narrows slightly (0.031→0.019) only because SVM degrades more on the harder distribution. **Data quantity without label balance does not help.** Effective dataset expansion requires targeting NV-rich countries (e.g. DEU, FRA, NLD) or deliberate NV oversampling.
