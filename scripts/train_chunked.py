@@ -423,6 +423,29 @@ def main(args):
              probs=avg_probs, labels=y_true)
     print(f"Test probs saved to {args.output_dir}/test_probs.npz")
 
+    # Save the best seed's encoder as a HuggingFace model for downstream use
+    if args.save_encoder_dir:
+        best_seed = args.seeds[
+            int(np.argmax([
+                f1_score(y_true,
+                         (_softmax(tl).argmax(1)),
+                         average='macro', zero_division=0)
+                for tl in all_test_logits
+            ]))
+        ]
+        best_run_dir = os.path.join(args.output_dir, f'seed_{best_seed}')
+        # Reload best checkpoint into a fresh model and extract encoder
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        tokenizer  = AutoTokenizer.from_pretrained(args.model_name)
+        tmp_model  = ChunkedDeberta(args.model_name).to(device)
+        tmp_model.load_state_dict(torch.load(
+            os.path.join(best_run_dir, 'best_model.pt'), map_location=device
+        ))
+        os.makedirs(args.save_encoder_dir, exist_ok=True)
+        tmp_model.encoder.save_pretrained(args.save_encoder_dir)
+        tokenizer.save_pretrained(args.save_encoder_dir)
+        print(f"Fine-tuned encoder (seed={best_seed}) saved to {args.save_encoder_dir}")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -444,6 +467,8 @@ if __name__ == '__main__':
     parser.add_argument('--mask_shortcuts', action='store_true', default=False)
     parser.add_argument('--attn_pool',     action='store_true', default=False,
                         help='Attention-weighted chunk pooling instead of mean pooling')
-    parser.add_argument('--temporal',      action='store_true', default=False,
+    parser.add_argument('--temporal',         action='store_true', default=False,
                         help='Temporal split: train on year<p75, test on year>=p75')
+    parser.add_argument('--save_encoder_dir', type=str,   default='',
+                        help='If set, save best-seed encoder as HuggingFace model to this path')
     main(parser.parse_args())
