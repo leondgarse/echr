@@ -517,6 +517,31 @@ The sequence of SVM dominance followed by LegalBERT chunked resolution is itself
 
 The spurious correlations story remains valid — and deepens: LegalBERT chunked (0.760 random) drops to 0.682 temporally (−0.078), its highest random-split score correlating with its largest temporal fragility. **The model that appears most capable on standard evaluation is most reliant on temporal shortcuts.** SVM, despite being a bag-of-words model, remains the most temporally robust (0.746). For the paper, this is the key thesis: random-split performance is a misleading metric for legal AI; temporal generalisation exposes whether a model has learned legal principles or memorised historical accident patterns.
 
+### 9.6 Preprocessing ablation: raw text is optimal for ChunkedBERT
+
+**Question:** Does SVM-style preprocessing (isalpha, stop words, lemmatisation) help LegalBERT by reducing noise and token count?
+
+**Answer: No — every preprocessing variant hurts ChunkedBERT.** Results on the original 436-case dataset using the full notebook training stack (focal loss, LLRD, 4-seed ensemble, 5 epochs):
+
+| Variant | ChunkedBERT-4× F1 | Delta |
+|---------|-------------------|-------|
+| raw | 0.765 | — |
+| year_masked | 0.747 | −0.018 |
+| isalpha only | 0.724 | −0.041 |
+| preprocessed (SVM equiv.) | 0.703 | −0.062 |
+
+The degradation is concentrated in **F1(NV)** (0.655 → 0.561): the model loses its ability to identify non-violations when text is stripped. F1(V) remains relatively stable (0.875 → 0.845). This is consistent with BERT's pretraining on full natural language — stop words and punctuation provide syntactic context for attention that is informative even when semantically weak.
+
+**Year masking** (removing 4-digit years 1900–2099) causes a −0.018 drop for chunked despite being a known spurious shortcut. With 2040-token coverage, years are a small fraction of a rich context, and some year-specific patterns are genuinely predictive (temporal trends in ECHR case law). Year masking does slightly help bert512 (+0.020), where years occupy a larger proportion of the truncated window.
+
+**Fair comparison on identical vocabulary:** When both SVM and ChunkedBERT-2× (1020 tok) receive the same preprocessed text, ChunkedBERT still wins (0.727 vs 0.718 SVM). BERT's contextual representations add genuine value even on an identical vocabulary with less document coverage. The full advantage breakdown:
+- SVM raw (full text): 0.726 (notebook)
+- SVM preprocessed (full text): 0.718 (this ablation)
+- ChunkedBERT-2× preprocessed (1020 tok): 0.727
+- ChunkedBERT-4× raw (2040 tok): **0.765**
+
+The right input for LegalBERT is raw text. Preprocessing is for SVM only.
+
 ### 9.5 Original dataset: LegalBERT chunked finally beats SVM (confirmed)
 
 On the original 436-case dataset (RUS/TUR/GBR only), LegalBERT chunked 4× (run 80, fresh 4-seed) achieves **0.748** — confirmed above both SVM (0.726) and LogReg (0.735). The breakthrough requires:
@@ -527,5 +552,44 @@ On the original 436-case dataset (RUS/TUR/GBR only), LegalBERT chunked 4× (run 
 With CDA masking (run 74, 8 seeds): also 0.748 — CDA adds nothing on the 3-country dataset once coverage is already 2040 tokens (the country-prior shortcuts are overridden by the richer document context). The improvement over SVM (+0.022) requires only the 4-seed ensemble; the earlier finding that 8 seeds were needed for the original dataset was not confirmed in run 80 (4 seeds gives the same 0.748).
 
 **The original dataset result is now: LegalBERT chunked 0.748 > SVM 0.726 > LogReg 0.735? No — LogReg 0.735 < 0.748.** Full ordering on original random split: LegalBERT chunked (0.748) > LogReg (0.735) > SVM (0.726).
+
+---
+
+## 10. LIME Explainability Analysis
+
+### 10.1 Setup
+
+LIME fits a local linear approximation by perturbing the input (randomly masking words) and observing prediction changes. **SVM** uses Platt-calibrated probabilities (5-fold CalibratedClassifierCV). **LegalBERT** wraps the ChunkedBERT forward pass as `predict_proba`. Both run on 50 balanced test cases (25 violation / 25 no-violation), same sample. Stop words, non-alpha tokens, and tokens ≤2 chars are post-filtered from the *reported* word list — models receive unmodified raw text.
+
+Script: `scripts/run_lime_bert.py` | Notebook: §11.4–11.5
+
+### 10.2 SVM top features (500 perturbations, freq≥2)
+
+| Direction | Words | Interpretation |
+|-----------|-------|----------------|
+| → Violation | `advocate`, `security`, `cassation`, `hearing`, `convening`, `moscow`, `compensation`, `brought`, `district`, `administrative` | Procedural/institutional markers; many associated with Russian/Turkish cases (Moscow, cassation courts, administrative proceedings) |
+| → No Violation | `jury`, `transcript`, `united`, `kingdom`, `property`, `house`, `planning`, `concerning`, `government` | UK-specific procedural terms (jury, transcript, planning); `united`+`kingdom` encodes GBR country identity |
+
+130 words survive freq≥2 (47 violation, 83 no-violation) — SVM has a richer no-violation signal, reflecting more balanced TF-IDF feature weights.
+
+### 10.3 LegalBERT Chunked top features (500 perturbations, freq≥2, stop-word filtered)
+
+Updated run: 500 perturbations/case, 20 features/case — increased from 300/15 for more stable weight estimates. Results saved to `logs/lime_bert_results.txt`.
+
+| Direction | Words | Interpretation |
+|-----------|-------|----------------|
+| → Violation | `applicant`, `security`, `circumstance`, `appeal`, `solicitor`, `born`, `defence`, `martial`, `police`, `life` | Substantive legal facts: party identity (`applicant`, `born`), legal process (`appeal`, `solicitor`, `defence`), situational context (`security`, `martial`, `police`, `life`) |
+| → No Violation | `follows`, `flat`, `together`, `reason`, `aid` | Very sparse and low-weight (max −0.025); likely formulaic phrasing patterns, not substantive legal signal |
+
+65 words survive freq≥2 (60 violation, 5 no-violation). Increasing perturbations to 500 surfaced 5 no-violation words (vs 3 before) but the asymmetry persists — BERT is primarily a violation detector. This is consistent with the test set distribution (80 violation / 29 no-violation) and BERT's lower F1(NV) throughout training. The no-violation signal in LIME is weak both in frequency and weight magnitude, suggesting BERT under-represents the no-violation class in its decision boundary.
+
+### 10.4 SVM vs BERT divergence
+
+Shared terms in top violation lists: `security`, `martial`, `born`, `circumstance`. Divergent terms:
+
+- **SVM** favours **procedural/institutional** tokens — court-specific (`cassation`, `advocate`, `hearing`), geographic markers (`moscow`), jurisdictional terminology. Consistent with SVM learning country/procedure shortcuts where Russian and Turkish cases have high violation rates and distinctive boilerplate.
+- **BERT** favours **substantive legal facts** — party identity (`applicant`, `born`), legal representation (`solicitor`, `defence`), enforcement context (`police`, `security`, `martial`). BERT attends to what happened in the case rather than where or how proceedings were structured.
+
+The partial overlap (`security`, `martial`, `circumstance`) suggests both models share some genuine legal signal — these terms reflect factual contexts that genuinely correlate with Article 6 violations (military tribunals, security detentions). The divergence in the remaining terms exposes model-specific shortcuts: SVM exploits procedural country markers; BERT relies more on case-specific narrative content. **LegalBERT's explanations are more legally coherent**, but its violation-side dominance indicates it still struggles to articulate why cases do *not* constitute violations.
 
 ---
