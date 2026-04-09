@@ -30,6 +30,7 @@ We trained NLP models to predict whether the European Court of Human Rights foun
 | DeBERTa-v3 fine-tuned | 512 tok (head+tail) | 0.719 | — |
 | Adversarial LegalBERT | 512 tok | 0.712 | — |
 | Legal-Longformer | 4096 tok (native) | 0.689 | — |
+| NeoBERT fine-tuned | 4096 tok (native) | 0.693 | — |
 | DeBERTa chunked 4× | 2040 tok (4×510) | 0.726 | — |
 | **LegalBERT chunked 4×** | **2040 tok (4×510)** | **0.760** | **0.748** |
 | LegalBERT chunked + CDA | 2040 tok | 0.756 | 0.748 |
@@ -82,7 +83,8 @@ Violation features are event-driven and templated: `quashed`, `detention`, `dela
 ## What Didn't Work
 
 - **DeBERTa-large**: collapsed to majority-class prediction — over-parameterised for ~900 training cases
-- **Legal-Longformer (4096 tok native)**: 0.689 — full self-attention over 4096 tokens is noisier than 4-chunk mean-pool
+- **Legal-Longformer (4096 tok native)**: 0.689 — full self-attention over 4096 tokens is noisier than 4-chunk mean-pool; confirmed across LR/epoch/data/pooling tuning
+- **NeoBERT (250M, general domain, 4096 tok)**: 0.693 — matches Legal-Longformer despite no legal pretraining; 28-layer depth causes training instability; both ~0.06 below LegalBERT chunked
 - **More epochs (10 vs 5)**: worse (0.730 vs 0.760) — overfitting
 - **8 chunks vs 4 chunks**: worse — coverage ceiling
 - **Adversarial debiasing on DeBERTa**: hurts random split (−0.043) — conflicts with DeBERTa's disentangled attention

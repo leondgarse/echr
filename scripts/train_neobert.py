@@ -1,24 +1,25 @@
 """
-train_longformer.py — Fine-tune Legal-Longformer for ECHR violation prediction.
+train_neobert.py — Fine-tune NeoBERT for ECHR violation prediction.
 
-Uses LongformerForSequenceClassification with global attention on [CLS] token,
-natively handling up to 4096 tokens without chunking. Applies the same training
-recipe as train_chunked.py: focal loss, LLRD, multi-seed ensemble, threshold tuning.
+NeoBERT (chandar-lab/NeoBERT) is a modern encoder with 4096-token native
+context and 250M parameters. Uses CLS-token classification with the same
+training recipe as other models: focal loss, LLRD, multi-seed ensemble,
+threshold tuning.
 
-Model: lexlms/legal-longformer-base (4096 tokens, legally pretrained)
-Architecture: Longformer → CLS global attention → Linear(768→2)
+Model: chandar-lab/NeoBERT (4096 tokens, general domain)
+Architecture: NeoBERT → CLS token → Linear(hidden→2)
 
 Usage:
-    python scripts/train_longformer.py \
+    python scripts/train_neobert.py \
         --data_dir data_v1 \
-        --output_dir results/legal_longformer_v1 \
+        --output_dir results/neobert_v1 \
         --epochs 5 --batch_size 2 --grad_accum 8 \
         --learning_rate 2e-5 --seeds 0 1 2 3
 
     # Temporal split:
-    python scripts/train_longformer.py \
+    python scripts/train_neobert.py \
         --data_dir data_v1 \
-        --output_dir results/legal_longformer_v1_temporal \
+        --output_dir results/neobert_v1_temporal \
         --temporal --seeds 0 1 2 3
 """
 
@@ -32,14 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import Dataset, DataLoader
-from transformers import (
-    AutoTokenizer,
-    LongformerForSequenceClassification,
-    LongformerModel,
-    LongformerConfig,
-    set_seed,
-    get_linear_schedule_with_warmup,
-)
+from transformers import AutoTokenizer, AutoModel, set_seed, get_linear_schedule_with_warmup
 from sklearn.metrics import (
     accuracy_score, precision_recall_fscore_support,
     f1_score, classification_report,
@@ -51,46 +45,34 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 
 # ---------------------------------------------------------------------------
-# Mean-pool model wrapper
+# Model — NeoBERT encoder + classification head
 # ---------------------------------------------------------------------------
 
-class LongformerMeanPool(nn.Module):
-    """LongformerModel + mean-pool over non-padding tokens → Linear(768, 2)."""
-    def __init__(self, model_name, attention_window=512):
+class NeoBERTClassifier(nn.Module):
+    def __init__(self, model_name, num_labels=2, dropout=0.1):
         super().__init__()
-        self.longformer = LongformerModel.from_pretrained(
-            model_name, attention_window=attention_window
-        )
-        hidden = self.longformer.config.hidden_size
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden, hidden),
-            nn.Tanh(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden, 2),
-        )
+        self.encoder = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+        hidden_size  = self.encoder.config.hidden_size
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_size, num_labels)
 
-    def forward(self, input_ids, attention_mask, global_attention_mask):
-        out    = self.longformer(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            global_attention_mask=global_attention_mask,
-        )
-        hidden = out.last_hidden_state                        # (B, L, H)
-        mask   = attention_mask.unsqueeze(-1).float()
-        pooled = (hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-        return self.classifier(pooled)                        # (B, 2)
+    def forward(self, input_ids, attention_mask):
+        outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        # CLS token representation
+        cls = outputs.last_hidden_state[:, 0, :]
+        cls = self.dropout(cls)
+        return self.classifier(cls)
 
 
 # ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
 
-class LongformerECHRDataset(Dataset):
-    def __init__(self, df, tokenizer, max_len=4096, mask_shortcuts=False):
-        self.df              = df.reset_index(drop=True)
-        self.tokenizer       = tokenizer
-        self.max_len         = max_len
-        self.mask_shortcuts  = mask_shortcuts
+class NeoBERTDataset(Dataset):
+    def __init__(self, df, tokenizer, max_len=4096):
+        self.df        = df.reset_index(drop=True)
+        self.tokenizer = tokenizer
+        self.max_len   = max_len
 
     def __len__(self):
         return len(self.df)
@@ -100,10 +82,6 @@ class LongformerECHRDataset(Dataset):
         text  = str(row['text'])
         label = int(row['label'])
 
-        if self.mask_shortcuts:
-            from dataset import mask_shortcuts as _mask
-            text = _mask(text, self.tokenizer.mask_token or '[MASK]')
-
         encoding = self.tokenizer(
             text,
             max_length=self.max_len,
@@ -111,46 +89,44 @@ class LongformerECHRDataset(Dataset):
             truncation=True,
             return_tensors='pt',
         )
-        input_ids      = encoding['input_ids'].squeeze(0)       # (max_len,)
-        attention_mask = encoding['attention_mask'].squeeze(0)   # (max_len,)
-
-        # Global attention on CLS token (index 0)
-        global_attention_mask = torch.zeros_like(attention_mask)
-        global_attention_mask[0] = 1
-
         return {
-            'input_ids':             input_ids,
-            'attention_mask':        attention_mask,
-            'global_attention_mask': global_attention_mask,
-            'labels':                torch.tensor(label, dtype=torch.long),
+            'input_ids':      encoding['input_ids'].squeeze(0),
+            'attention_mask': encoding['attention_mask'].squeeze(0),
+            'labels':         torch.tensor(label, dtype=torch.long),
         }
 
 
 # ---------------------------------------------------------------------------
-# LLRD optimizer — adapted for Longformer layer structure
+# LLRD optimizer
 # ---------------------------------------------------------------------------
 
 def build_llrd_optimizer(model, lr, wd, decay):
     """
-    Longformer layer structure:
-      model.longformer.embeddings
-      model.longformer.encoder.layers[0..11]
-      model.classifier (pooler + dense)
+    NeoBERT layer structure (28 transformer layers):
+      model.encoder.encoder          — token embeddings
+      model.encoder.transformer_encoder[0..27]  — EncoderBlocks
+      model.encoder.layer_norm       — final RMSNorm
+      model.classifier               — classification head
     """
-    encoder    = model.longformer
-    num_layers = len(encoder.encoder.layer)
+    neo    = model.encoder                       # the AutoModel
+    layers = neo.transformer_encoder             # ModuleList, 28 blocks
+    num_layers = len(layers)
+
     groups = [
         {'params': list(model.classifier.parameters()), 'lr': lr, 'weight_decay': wd},
     ]
-    for depth, layer in enumerate(reversed(encoder.encoder.layer)):
+    # Transformer layers — depth decay from top (layer 27) to bottom (layer 0)
+    for depth, layer in enumerate(reversed(layers)):
         groups.append({
             'params': list(layer.parameters()),
             'lr': lr * (decay ** (depth + 2)),
             'weight_decay': wd,
         })
+    # Embeddings + final layer norm at lowest LR
+    embed_lr = lr * (decay ** (num_layers + 2))
     groups.append({
-        'params': list(encoder.embeddings.parameters()),
-        'lr': lr * (decay ** (num_layers + 2)),
+        'params': list(neo.encoder.parameters()) + list(neo.layer_norm.parameters()),
+        'lr': embed_lr,
         'weight_decay': wd,
     })
     lrs = [g['lr'] for g in groups]
@@ -175,26 +151,14 @@ def focal_loss(logits, labels, weight, gamma):
 # Evaluate
 # ---------------------------------------------------------------------------
 
-def _forward(model, batch, device):
-    input_ids             = batch['input_ids'].to(device)
-    attention_mask        = batch['attention_mask'].to(device)
-    global_attention_mask = batch['global_attention_mask'].to(device)
-    out = model(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        global_attention_mask=global_attention_mask,
-    )
-    # LongformerForSequenceClassification returns an object with .logits;
-    # LongformerMeanPool returns a raw tensor.
-    return out.logits if hasattr(out, 'logits') else out
-
-
 @torch.no_grad()
 def evaluate(model, loader, device):
     model.eval()
     all_logits, all_labels = [], []
     for batch in loader:
-        logits = _forward(model, batch, device)
+        input_ids      = batch['input_ids'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+        logits         = model(input_ids=input_ids, attention_mask=attention_mask)
         all_logits.append(logits.cpu().numpy())
         all_labels.append(batch['labels'].numpy())
     logits = np.concatenate(all_logits)
@@ -213,30 +177,17 @@ def train_one(args, train_df, val_df, test_df, model_seed):
     set_seed(model_seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-    if args.pooling == 'mean':
-        model = LongformerMeanPool(args.model_name,
-                                   attention_window=args.attention_window).to(device)
-    else:
-        model = LongformerForSequenceClassification.from_pretrained(
-            args.model_name,
-            num_labels=2,
-            attention_window=args.attention_window,
-        ).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+    model     = NeoBERTClassifier(args.model_name, num_labels=2,
+                                  dropout=args.dropout).to(device)
 
     weights = compute_class_weight('balanced', classes=np.array([0, 1]),
                                    y=train_df['label'].values)
     class_w = torch.tensor(weights, dtype=torch.float, device=device)
 
-    train_ds = LongformerECHRDataset(train_df, tokenizer,
-                                     max_len=args.max_len,
-                                     mask_shortcuts=args.mask_shortcuts)
-    val_ds   = LongformerECHRDataset(val_df,   tokenizer,
-                                     max_len=args.max_len,
-                                     mask_shortcuts=args.mask_shortcuts)
-    test_ds  = LongformerECHRDataset(test_df,  tokenizer,
-                                     max_len=args.max_len,
-                                     mask_shortcuts=args.mask_shortcuts)
+    train_ds = NeoBERTDataset(train_df, tokenizer, max_len=args.max_len)
+    val_ds   = NeoBERTDataset(val_df,   tokenizer, max_len=args.max_len)
+    test_ds  = NeoBERTDataset(test_df,  tokenizer, max_len=args.max_len)
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size,
                               shuffle=True,  num_workers=0)
@@ -264,11 +215,13 @@ def train_one(args, train_df, val_df, test_df, model_seed):
         epoch_loss, n_steps = 0.0, 0
 
         for step, batch in enumerate(train_loader):
-            lbls = batch['labels'].to(device)
+            input_ids      = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            lbls           = batch['labels'].to(device)
 
-            logits = _forward(model, batch, device)
+            logits = model(input_ids=input_ids, attention_mask=attention_mask)
             loss   = focal_loss(logits, lbls, class_w, args.focal_gamma)
-            loss = loss / args.grad_accum
+            loss   = loss / args.grad_accum
             loss.backward()
             epoch_loss += loss.item() * args.grad_accum
 
@@ -295,11 +248,9 @@ def train_one(args, train_df, val_df, test_df, model_seed):
                 print(f"  Early stopping at epoch {epoch}")
                 break
 
-    # Load best checkpoint
     model.load_state_dict(torch.load(
         os.path.join(run_dir, 'best_model.pt'), map_location=device
     ))
-    # Clean up checkpoint to save disk space
     os.remove(os.path.join(run_dir, 'best_model.pt'))
 
     test_f1, test_logits, test_labels = evaluate(model, test_loader, device)
@@ -309,7 +260,7 @@ def train_one(args, train_df, val_df, test_df, model_seed):
 
 
 # ---------------------------------------------------------------------------
-# Data loading helpers
+# Data loading helpers (shared with other train_*.py scripts)
 # ---------------------------------------------------------------------------
 
 def _contains_article(series, article):
@@ -358,8 +309,7 @@ def load_and_split(data_path, data_seed, temporal=False):
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}  |  model: {args.model_name}")
-    print(f"max_len={args.max_len}  temporal={args.temporal}  "
-          f"cda={args.mask_shortcuts}  pooling={args.pooling}")
+    print(f"max_len={args.max_len}  temporal={args.temporal}")
 
     os.makedirs(args.output_dir, exist_ok=True)
     data_path = os.path.join(args.data_dir, 'processed', 'processed.csv')
@@ -431,29 +381,24 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir',       type=str,   required=True)
-    parser.add_argument('--model_name',     type=str,   default='lexlms/legal-longformer-base')
-    parser.add_argument('--output_dir',     type=str,   default='results/legal_longformer')
-    parser.add_argument('--max_len',        type=int,   default=4096,
-                        help='Max token length (Longformer supports up to 4096)')
-    parser.add_argument('--attention_window', type=int, default=512,
-                        help='Longformer local attention window size')
-    parser.add_argument('--pooling',        type=str,   default='cls',
-                        choices=['cls', 'mean'],
-                        help='cls: CLS-token (default); mean: mean-pool all tokens')
-    parser.add_argument('--epochs',         type=int,   default=5)
-    parser.add_argument('--batch_size',     type=int,   default=1,
-                        help='Per-step batch size (4096 tokens is ~4× larger than 512)')
-    parser.add_argument('--grad_accum',     type=int,   default=16,
-                        help='Gradient accumulation steps (effective batch = batch_size * grad_accum)')
-    parser.add_argument('--learning_rate',  type=float, default=2e-5)
-    parser.add_argument('--llrd_decay',     type=float, default=0.9)
-    parser.add_argument('--patience',       type=int,   default=3)
-    parser.add_argument('--focal_gamma',    type=float, default=2.0)
-    parser.add_argument('--seeds',          type=int,   nargs='+', default=[0, 1, 2, 3])
-    parser.add_argument('--data_seed',      type=int,   default=42)
-    parser.add_argument('--mask_shortcuts', action='store_true', default=False)
-    parser.add_argument('--temporal',       action='store_true', default=False,
-                        help='Use temporal train/test split (train year<75th-pct, test year>=75th-pct)')
+    parser.add_argument('--data_dir',      type=str,   required=True)
+    parser.add_argument('--model_name',    type=str,   default='chandar-lab/NeoBERT')
+    parser.add_argument('--output_dir',    type=str,   default='results/neobert_v1')
+    parser.add_argument('--max_len',       type=int,   default=4096,
+                        help='Max token length (NeoBERT supports up to 4096)')
+    parser.add_argument('--epochs',        type=int,   default=5)
+    parser.add_argument('--batch_size',    type=int,   default=1,
+                        help='Per-step batch size (4096 tokens; increase if memory allows)')
+    parser.add_argument('--grad_accum',    type=int,   default=16,
+                        help='Effective batch = batch_size * grad_accum')
+    parser.add_argument('--learning_rate', type=float, default=2e-5)
+    parser.add_argument('--llrd_decay',    type=float, default=0.9)
+    parser.add_argument('--patience',      type=int,   default=3)
+    parser.add_argument('--focal_gamma',   type=float, default=2.0)
+    parser.add_argument('--dropout',       type=float, default=0.1)
+    parser.add_argument('--seeds',         type=int,   nargs='+', default=[0, 1, 2, 3])
+    parser.add_argument('--data_seed',     type=int,   default=42)
+    parser.add_argument('--temporal',      action='store_true', default=False,
+                        help='Use temporal train/test split')
     args = parser.parse_args()
     main(args)

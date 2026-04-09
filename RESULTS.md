@@ -460,6 +460,9 @@ All on v1 dataset (1,205 cases, 81.9% V, test n=302). Focal γ=2, seeds=[0,1,2,3
 | **81** | **LegalBERT chunked 4×, v1 (fresh 4-seed)** | 2040 tok | 0.742 (t=0.50) | **0.752** (t=0.45) | 0→0.698, 1→0.646, 2→0.693, 3→0.711; confirmed |
 | 82 | Legal-Longformer temporal, v1 | 4096 tok | **0.678** (t=0.50) | 0.678 | 0→0.662, 1→0.667, 2→0.695, 3→0.673 |
 | 83 | LegalBERT chunked 4× + CDA temporal, v1 | 2040 tok | **0.673** (t=0.50) | 0.673 | 0→0.716, 1→0.679, 2→0.662, 3→0.688; CDA hurts temporally (−0.009) |
+| 90 | Legal-Longformer v2, v1, lr=1e-5, 8ep | 4096 tok, CLS | **0.690** (t=0.50) | 0.690 | 0→0.675, 1→0.682, 2→0.656, 3→0.698; stable curves but no improvement |
+| 92 | Legal-Longformer, data_large, CLS pool | 4096 tok, CLS | 0.674 (t=0.45) | 0.674 | 0→0.666, 1→0.670, 2→0.673, 3→0.671; more data hurts — higher imbalance |
+| 93 | Legal-Longformer, data_large, mean pool | 4096 tok, mean | 0.671 (t=0.40) | 0.671 | 0→0.675, 1→0.662, 2→0.690, 3→0.657; mean pooling no better than CLS |
 
 **LegalBERT chunked beats SVM for the first time: 0.760 vs 0.732 (+0.028).**
 
@@ -494,6 +497,8 @@ The winning combination is **legal domain pretraining + full document coverage**
 LegalBERT's larger random-split advantage (0.760 vs 0.726) comes at the cost of greater temporal vulnerability (−0.078 vs −0.035). The model's legal pretraining may encode temporal proxies (year-specific legal language, procedural formulae that changed over time) that are not available in the temporal test set. DeBERTa's more modest random-split performance generalises better across time. SVM remains the most temporally stable model.
 
 **Legal-Longformer (run 75):** `lexlms/legal-longformer-base` with native 4096-token attention achieves macro-F1=0.689 (t=0.50) — well below LegalBERT chunked 0.760 (−0.071). Despite combining legal pretraining AND 4096-token context, full self-attention over the entire document is noisier than 4-chunk mean-pooled CLS tokens. The chunked architecture isolates each 510-token segment before pooling, forcing the model to extract dense local summaries; Longformer attends globally but spreads attention signal across many low-information tokens. Additionally, Legal-Longformer's legal pretraining corpus may be smaller/different than LegalBERT's. Threshold tuning backfires (t=0.45 from val gives 0.673 < 0.689 at t=0.50) — val calibration is unreliable for this model. **Legal-Longformer is not competitive; chunked mean-pooling remains the superior architecture.**
+
+**Legal-Longformer tuning attempts (runs 90, 92, 93):** Extensive tuning confirms the gap is structural, not a hyperparameter issue. Lowering LR to 1e-5 and extending to 8 epochs (run 90) stabilises training curves but yields only marginal gain (0.690 vs 0.689). Expanding to `data_large` (3,212 cases, 84.7% violation) with CLS pooling (run 92) degrades to 0.674 — the higher class imbalance outweighs the benefit of more data. Replacing CLS with mean pooling over all non-padding tokens (run 93) also degrades to 0.671 — Longformer's local sliding-window attention means distant tokens lack bidirectional context, making their mean noisy. The ~0.07 gap to LegalBERT chunked is robust across all tuning strategies.
 
 
 **CDA masking on v1 (run 72):** LegalBERT chunked + CDA achieves 0.756 (t=0.45) vs 0.760 without CDA — effectively neutral (−0.004). On v1 (8 diverse countries: POL, ROU, RUS, GBR, DEU, FRA, BEL, TUR), country tokens carry useful legal-type signal that CDA removes. Unlike the original 3-country dataset where dominant priors (RUS/TUR/GBR) are shortcuts, v1 country diversity means country identity partially encodes genuine legal-system differences. Seed-level variance (0.681–0.763) is comparable to baseline, confirming CDA neither helps nor hurts meaningfully on multi-country datasets.
@@ -542,7 +547,9 @@ LegalBERT's larger random-split advantage (0.760 vs 0.726) comes at the cost of 
 13. **SVM advantage is entirely explained by document coverage, not model quality** — When SVM is restricted to the same 512 tokens DeBERTa sees (head_tail), its macro-F1 drops from 0.732 to 0.678 — virtually the same as DeBERTa's 0.670. The apparent SVM superiority is an artefact of input truncation, not a reflection of the model's learning capacity. Extending coverage to 2048 tokens recovers SVM to 0.728 (near full-text performance). Any model covering ~2048 tokens should match or beat full-text SVM.
 
 
-20. **Legal-Longformer loses to chunked LegalBERT despite better architecture** — `lexlms/legal-longformer-base` (4096 tokens, legal pretraining) = 0.689 vs LegalBERT chunked 4× = 0.760 (−0.071). Full self-attention over 4096 tokens is noisier than 4-chunk mean-pooled CLS. The chunked approach's forced local summarisation per segment is a stronger inductive bias for documents where key legal facts are scattered. Longformer's global attention dilutes the CLS signal across too many low-content tokens. **Chunked mean-pooling of CLS tokens is the superior long-document strategy for ECHR FACTS sections at this data scale.**
+20. **Legal-Longformer loses to chunked LegalBERT despite better architecture** — `lexlms/legal-longformer-base` (4096 tokens, legal pretraining) = 0.689 vs LegalBERT chunked 4× = 0.760 (−0.071). Full self-attention over 4096 tokens is noisier than 4-chunk mean-pooled CLS. The chunked approach's forced local summarisation per segment is a stronger inductive bias for documents where key legal facts are scattered. Longformer's global attention dilutes the CLS signal across too many low-content tokens. **Chunked mean-pooling of CLS tokens is the superior long-document strategy for ECHR FACTS sections at this data scale.** Extensive tuning (LR, epochs, more data, mean pooling) confirmed the gap is structural.
+
+21. **NeoBERT (general domain, 250M, 4096 tok) matches Legal-Longformer despite no legal pretraining** — NeoBERT (`chandar-lab/NeoBERT`) fine-tuned with LLRD achieves macro-F1=0.693, essentially identical to Legal-Longformer (0.690). A general-purpose modern encoder at 4096 tokens matches a legally pretrained Longformer — the architectural improvement (RoPE, 28 layers, larger hidden) compensates for the lack of domain pretraining. However, neither approach closes the gap with LegalBERT chunked (0.760). NeoBERT's training is more unstable than Longformer (high initial loss, high seed variance) due to its 28-layer depth and absence of legal vocabulary initialisation.
 
 
 18. **CDA effectiveness is context-dependent: helps on 3-country, neutral on 8-country** — CDA masking country/place/month tokens strongly improves original 3-country dataset (LegalBERT chunked: 0.720→0.748, +0.028) but is neutral/slightly negative on v1 8-country dataset (0.760→0.756, −0.004). On the original dataset (RUS 80%, TUR 83%, GBR 64% violation rates), country tokens encode dominant per-country base rates — removing them forces genuine legal reasoning. On v1's 8 diverse countries, country identity partially encodes legal-system differences that are informative signals rather than pure shortcuts.
@@ -586,6 +593,31 @@ After SVM-style preprocessing, median tokens = 311, P90 = 1,072 — so 2 chunks 
 | ChunkedBERT-2× (1020 tok) | preprocessed | ~80% | **0.727** | 0.596 | 0.857 |
 
 **Finding:** Even on identical preprocessed vocabulary with less coverage (1020 vs full text), ChunkedBERT-2× (0.727) beats SVM (0.718) by +0.009. BERT's contextual representations add genuine value over TF-IDF even on the same word set. The advantage is in F1(V) (0.857 vs 0.829) — BERT is better at identifying true violations from the same features.
+
+---
+
+## 12. NeoBERT
+
+Model: `chandar-lab/NeoBERT` (250M params, 28 transformer layers, 4096-token context, RoPE, general domain)
+Script: `scripts/train_neobert.py`
+Architecture: NeoBERT encoder → CLS token → Dropout(0.1) → Linear(hidden, 2)
+Config: `max_len=4096, batch_size=1, grad_accum=16, focal_gamma=2.0, seeds=[0,1,2,3]`
+Dataset: Enlarged v1 (1,205 Art.6 cases, 81.9% violation), random split, test n=302
+
+| Log | LR | LLRD | Macro-F1 | Acc | F1(no-viol) | F1(viol) | Notes |
+|-----|----|------|----------|-----|-------------|----------|-------|
+| 89_neobert_v1 | 2e-5 | uniform (fallback) | 0.690 | 0.772 | 0.531 | 0.849 | LLRD failed — non-standard layer names |
+| 91_neobert_v2 | 2e-5 | LLRD (8.5e-7→2e-5, 28 layers) | **0.693** | 0.772 | 0.537 | 0.848 | Fixed LLRD; marginal +0.003 |
+
+Per-seed (v2): 0→0.730, 1→0.678, 2→0.668, 3→0.621 — high variance across seeds.
+
+**Key observations:**
+- LLRD range 8.5e-7→2e-5 across 28 layers (decay=0.9^30) is very aggressive; some seeds show high initial loss (seed3: 1.03 at epoch 1), confirming the top LR 2e-5 is slightly too high for a 28-layer model with no legal vocabulary initialisation
+- Despite these handicaps, NeoBERT (0.693) matches Legal-Longformer (0.690) — the modern architecture (RoPE embeddings, deeper network, larger context) compensates for lack of domain pretraining
+- Both are ~0.06 below LegalBERT-Chunked (0.752–0.760), confirming the gap is about chunked mean-pooling vs single-vector classification, not pretraining domain alone
+- xformers dependency required: `pip install xformers`
+
+**Conclusion:** NeoBERT is a competitive general encoder but offers no advantage over Legal-Longformer for this task, and both lose to chunked LegalBERT. The architectural story is: chunked mean-pooling > single-vector (CLS or mean) regardless of context length.
 
 ---
 
