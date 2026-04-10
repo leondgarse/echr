@@ -1,0 +1,13 @@
+Device: cuda
+  seed=0:
+  LLRD lr range: 5.08e-06 - 2.00e-05
+    ep1: val_f1=0.537      ep2: val_f1=0.557      ep3: val_f1=0.545      ep4: val_f1=0.570      ep5: val_f1=0.569  -> best=0.570
+  seed=1:
+  LLRD lr range: 5.08e-06 - 2.00e-05
+    ep1: val_f1=0.511      ep2: val_f1=0.604      ep3: val_f1=0.599      ep4: val_f1=0.654      ep5: val_f1=0.612  -> best=0.654
+  seed=2:
+  LLRD lr range: 5.08e-06 - 2.00e-05
+    ep1: val_f1=0.389      ep2: val_f1=0.354      ep3: val_f1=0.549      ep4: val_f1=0.535      ep5: val_f1=0.535  -> best=0.549
+  seed=42:
+  LLRD lr range: 5.08e-06 - 2.00e-05
+    ep1: val_f1=0.530      ep2: val_f1=0.558  
