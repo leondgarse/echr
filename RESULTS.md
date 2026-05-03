@@ -225,15 +225,24 @@ Per-seed breakdown:
 Model: `allenai/longformer-base-4096`
 Script: `src/train.py`
 Config: `max_len=2048, truncation=head, batch_size=4, grad_accum=4, lr=2e-5, llrd_decay=0.9, patience=5`
-Dataset: Enlarged (1,205 Art.6 cases), random split
-Log: `31_longformer.log`
+
+### Enlarged dataset (1,205 Art.6 cases) — `31_longformer.log`
 
 | Seeds | Macro-F1 | Acc | F1(no-viol) | F1(viol) |
 |-------|----------|-----|-------------|----------|
 | Ensemble [42,0,1,2] | **0.662** | 0.778 | 0.464 | 0.860 |
 | Per-seed | 42→0.656, 0→0.657, 1→0.712, 2→0.715 | — | — | — |
 
-**Finding:** Longformer (0.662) underperforms DeBERTa (0.719) despite 4× longer context. The Longformer-base checkpoint is not pretrained on legal text, whereas DeBERTa's improved attention mechanism compensates. The 2048-token window does not provide a meaningful advantage for FACTS sections that are already captured well by 512-token head_tail truncation.
+### Original dataset (436 Art.6 cases) — `longformer_original_run.log`
+
+Config: `max_len=4096, pooling=cls, lr=2e-5, llrd_decay=0.9, focal, seeds=[0,1,2,3]`
+
+| Seeds | Macro-F1 | Acc | F1(no-viol) | F1(viol) |
+|-------|----------|-----|-------------|----------|
+| Ensemble [0,1,2,3] | **0.689** | 0.716 | 0.597 | 0.780 |
+| Per-seed | 0→0.688, 1→0.636, 2→0.693, 3→0.709 | — | — | — |
+
+**Finding:** Longformer (0.662 on enlarged, 0.689 on original) underperforms DeBERTa (0.719) despite 4× longer context. The Longformer-base checkpoint is not pretrained on legal text, whereas DeBERTa's improved attention mechanism compensates. The 2048-token window does not provide a meaningful advantage for FACTS sections that are already captured well by 512-token head_tail truncation.
 
 ---
 
@@ -257,6 +266,8 @@ Log: `31_longformer.log`
 | Adv DeBERTa-v3 (ensemble) | Enlarged (1205) | Temporal | 0.679 |
 | Adv DeBERTa-v3 (ensemble) | Enlarged (1205) | Random | 0.676 |
 | Longformer (ensemble) | Enlarged (1205) | Random | 0.662 |
+| Longformer (ensemble) | Original (436) | Random | 0.689 |
+| Legal-Longformer (ensemble) | Original (436) | Random | 0.672 |
 | Frozen BERT+SVM (CLS) | Original (436) | Random | 0.662 |
 | Frozen BERT+LR (mean) | Original (436) | Random | 0.639 |
 | Frozen BERT+LR (mean) | Enlarged (1205) | Random | 0.624 |
@@ -456,6 +467,7 @@ All on v1 dataset (1,205 cases, 81.9% V, test n=302). Focal γ=2, seeds=[0,1,2,3
 | 73 | LegalBERT chunked 4× + attn pool, v1 | 2040 tok | 0.712 (t=0.50) | **0.720** (t=0.45) | 0→0.711, 1→0.726, 2→0.684, 3→0.682; −0.040 vs mean pool |
 | **74** | **LegalBERT chunked 4× + CDA, orig (8 seeds)** | 2040 tok | 0.732 (t=0.50) | **0.748** (t=0.55) | 0→0.688, 1→0.727, 2→0.671, 3→0.674, 4→0.614, 5→0.748, 6→0.765, 7→0.632; **beats SVM 0.726 and LogReg 0.735 on original** |
 | 75 | Legal-Longformer (`lexlms/legal-longformer-base`), v1 | 4096 tok | **0.689** (t=0.50) | 0.673 (t=0.45 worse) | 0→0.675, 1→0.699, 2→0.696, 3→0.700; far below chunked LegalBERT |
+| — | Legal-Longformer (`lexlms/legal-longformer-base`), orig | 4096 tok, CLS | **0.672** (t=0.50) | 0.630 (t=0.55 worse) | 0→0.705, 1→0.710, 2→0.681, 3→0.643; threshold tuning backfires; `legal_longformer_original_run.log` |
 | **80** | **LegalBERT chunked 4×, orig (fresh 4-seed)** | 2040 tok | **0.748** (t=0.50) | 0.748 | 0→0.709, 1→0.745, 2→0.754, 3→0.554; **confirmed > SVM 0.726** |
 | **81** | **LegalBERT chunked 4×, v1 (fresh 4-seed)** | 2040 tok | 0.742 (t=0.50) | **0.752** (t=0.45) | 0→0.698, 1→0.646, 2→0.693, 3→0.711; confirmed |
 | 82 | Legal-Longformer temporal, v1 | 4096 tok | **0.678** (t=0.50) | 0.678 | 0→0.662, 1→0.667, 2→0.695, 3→0.673 |
