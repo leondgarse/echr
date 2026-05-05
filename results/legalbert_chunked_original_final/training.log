@@ -1,14 +1,14 @@
   seed=0:
   LLRD lr range: 5.08e-06 - 2.00e-05
-    ep1: val_f1=0.566      ep2: val_f1=0.604      ep3: val_f1=0.593      ep4: val_f1=0.629      ep5: val_f1=0.627  -> best=0.629
+    ep1: val_f1=0.579      ep2: val_f1=0.604      ep3: val_f1=0.569      ep4: val_f1=0.606      ep5: val_f1=0.646  -> best=0.646
   seed=1:
   LLRD lr range: 5.08e-06 - 2.00e-05
-    ep1: val_f1=0.653      ep2: val_f1=0.593      ep3: val_f1=0.525      ep4: val_f1=0.646      ep5: val_f1=0.727  -> best=0.727
+    ep1: val_f1=0.653      ep2: val_f1=0.574      ep3: val_f1=0.552      ep4: val_f1=0.646      ep5: val_f1=0.727  -> best=0.727
   seed=2:
   LLRD lr range: 5.08e-06 - 2.00e-05
-    ep1: val_f1=0.499      ep2: val_f1=0.566      ep3: val_f1=0.619      ep4: val_f1=0.601      ep5: val_f1=0.646  -> best=0.646
+    ep1: val_f1=0.483      ep2: val_f1=0.579      ep3: val_f1=0.666      ep4: val_f1=0.525      ep5: val_f1=0.633  -> best=0.666
   seed=42:
   LLRD lr range: 5.08e-06 - 2.00e-05
-    ep1: val_f1=0.421      ep2: val_f1=0.581      ep3: val_f1=0.651      ep4: val_f1=0.667      ep5: val_f1=0.638  -> best=0.667
+    ep1: val_f1=0.421      ep2: val_f1=0.633      ep3: val_f1=0.651      ep4: val_f1=0.694      ep5: val_f1=0.651  -> best=0.694
 
-  Ensemble macro-F1=0.731  (threshold=0.47)
+  Ensemble macro-F1=0.765  (threshold=0.50)
