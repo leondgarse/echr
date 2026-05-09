@@ -168,7 +168,7 @@ The corpus filter at the next cell narrows to the **436 Article 6 cases** for th
 
 ### 3.2 Article 6 — Respondent-State Distribution by Outcome
 
-Country-level distribution of Article 6 cases, split by violation / non-violation (ported from `EDA.ipynb` [§2](#2-log-discovery)b). Highlights the country-specific violation-rate patterns that motivate much of the bias analysis in [§11](#11-model-signal-analysis-svm-weights-and-lime).
+Country-level distribution of Article 6 cases, split by violation / non-violation. Highlights the country-specific violation-rate patterns that motivate much of the bias analysis in [§11](#11-model-signal-analysis-svm-weights-and-lime).
 
 
 ![png](LL5532X_Group_Project_Group_4_echr_files/LL5532X_Group_Project_Group_4_echr_15_0.png)
